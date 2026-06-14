@@ -7,34 +7,38 @@
 #include <vector>
 
 class BitWriter {
-    public:
-        BitWriter(const std::string &filename);
-        ~BitWriter();
+ public:
+  BitWriter(const std::string& filename, bool append = false);
+  ~BitWriter();
 
-        void WriteBitSequence(const std::vector<unsigned char> &data,
-                              size_t bitCount);
+  void WriteBit(unsigned char bit);
 
-        void Close();
+  void WriteBitSequence(const std::vector<unsigned char>& data, size_t bitCount);
 
-    private:
-        std::ofstream out;
-        unsigned char current_byte;
-        int bit_pos;
+  void Close();
+
+ private:
+  std::ofstream out;
+  unsigned char current_byte;
+  int bit_pos;
 };
 
 class BitReader {
-    public:
-        BitReader(const std::string &filename);
-        ~BitReader();
+ public:
+  BitReader(const std::string& filename, size_t skipBytes = 0);
+  ~BitReader();
 
-        std::vector<unsigned char> ReadBitSequence(size_t bitCount);
+  // читання одного біта; повертає 0/1 або -1 при кінці файлу
+  int ReadBit();
 
-        void Close();
+  std::vector<unsigned char> ReadBitSequence(size_t bitCount);
 
-    private:
-        std::ifstream in;
-        unsigned char current_byte;
-        int bit_pos;
+  void Close();
+
+ private:
+  std::ifstream in;
+  unsigned char current_byte;
+  int bit_pos;
 };
 
 void RunBitSeqDemo();

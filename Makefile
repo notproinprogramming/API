@@ -3,7 +3,7 @@ CXXFLAGS = -std=c++17 -Wall -Wextra -O2
 
 TARGET = Menu
 
-SOURCES = Menu.cpp Base64.cpp FileUtils.cpp RLE.cpp BitSeq.cpp
+SOURCES = Menu.cpp Base64.cpp FileUtils.cpp RLE.cpp BitSeq.cpp Huffman.cpp
 OBJECTS = $(SOURCES:.cpp=.o)
 
 $(TARGET): $(OBJECTS)
