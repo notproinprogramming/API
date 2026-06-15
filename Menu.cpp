@@ -81,6 +81,22 @@ static std::string makeOutPath(const std::string& dir, const std::string& inputP
   return dir + "/" + p.filename().string() + ext;
 }
 
+// питаємо, чи використовувати BWT/MTF
+static void askPreprocessing(bool& useBWT, bool& useMTF) {
+  std::cout << "  Препроцесинг:\n"
+            << "    0) без перетворень\n"
+            << "    1) BWT\n"
+            << "    2) MTF\n"
+            << "    3) BWT + MTF\n"
+            << "  > ";
+  int choice = 0;
+  std::cin >> choice;
+  std::cin.ignore();
+
+  useBWT = (choice == 1 || choice == 3);
+  useMTF = (choice == 2 || choice == 3);
+}
+
 // --- підменю Base64 ---
 static void menuBase64() {
   std::cout << "\n  1) Encode\n  2) Decode\n> ";
@@ -130,7 +146,9 @@ static void menuHuffman() {
   if (sub == 1) {
     std::string in = pickFile(DIR_MY);
     std::string out = makeOutPath(DIR_ENCODED, in, ".huf");
-    HuffmanEncodeFile(in, out);
+    bool useBWT, useMTF;
+    askPreprocessing(useBWT, useMTF);
+    HuffmanEncodeFile(in, out, useBWT, useMTF);
 
   } else if (sub == 2) {
     std::string in = pickFile(DIR_ENCODED);
@@ -149,7 +167,9 @@ static void menuLZW() {
   if (sub == 1) {
     std::string in = pickFile(DIR_MY);
     std::string out = makeOutPath(DIR_ENCODED, in, ".lzw");
-    LZWEncodeFile(in, out, 12, 1);
+    bool useBWT, useMTF;
+    askPreprocessing(useBWT, useMTF);
+    LZWEncodeFile(in, out, 12, 1, useBWT, useMTF);
 
   } else if (sub == 2) {
     std::string in = pickFile(DIR_ENCODED);
@@ -188,8 +208,8 @@ int main() {
     std::cout << "0 - Exit\n";
     std::cout << "1 - Base64    (1 encode, 2 decode)\n";
     std::cout << "2 - RLE       (1 encode, 2 decode)\n";
-    std::cout << "3 - Huffman   (1 encode, 2 decode)\n";
-    std::cout << "4 - LZW       (1 encode, 2 decode)\n";
+    std::cout << "3 - Huffman   (1 encode, 2 decode)[BWT/MTF]\n";
+    std::cout << "4 - LZW       (1 encode, 2 decode)[BWT/MTF]\n";
     std::cout << "9 - nvim\n";
     std::cout << "10 - Test (BitSeq demo)\n";
     std::cout << "> ";

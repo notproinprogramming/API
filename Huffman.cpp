@@ -7,18 +7,19 @@
 #include <queue>
 #include <vector>
 
+#include "BWT.hpp"
 #include "BitSeq.hpp"
 #include "FileUtils.hpp"
+#include "MTF.hpp"
 
-// побудова дерева
-//
-// порівнювач для черги з пріоритетом - менша частота = вищий пріоритет
+// BWT на файлах більше цього ліміту займе дуже багато RAM і часу
+static constexpr size_t BWT_SIZE_LIMIT = 256 * 1024 * 1024;  // 256 МБ
+
 struct NodeCmp {
   const std::vector<HuffNode>& pool;
   bool operator()(int a, int b) const { return pool[a].freq > pool[b].freq; }
 };
 
-// будуємо дерево Гафмана з таблиці частот, повертає індекс кореня в pool
 static int buildTree(const std::array<uint32_t, 256>& freq, std::vector<HuffNode>& pool) {
   pool.clear();
   pool.reserve(512);
@@ -32,7 +33,6 @@ static int buildTree(const std::array<uint32_t, 256>& freq, std::vector<HuffNode
     pq.push(idx);
   }
 
-  // крайній випадок - файл з одним унікальним байтом
   if (pq.size() == 1) {
     int child = pq.top();
     pq.pop();
@@ -69,15 +69,35 @@ static void buildCodes(const std::vector<HuffNode>& pool, int node, uint32_t bit
   buildCodes(pool, n.right, (bits << 1) | 1, depth + 1, codes);
 }
 
-int HuffmanEncodeFile(const std::string& inputFile, const std::string& outputFileUser) {
+int HuffmanEncodeFile(const std::string& inputFile, const std::string& outputFileUser, bool useBWT, bool useMTF) {
   std::vector<unsigned char> buf;
   if (!readBinaryFile(inputFile, buf)) return 1;
 
-  // рахуємо частоти
+  size_t originalSize = buf.size();
+
+  if (useBWT && originalSize > BWT_SIZE_LIMIT) {
+    std::cerr << "Попередження: файл " << originalSize / (1024 * 1024) << " МБ,"
+              << " BWT потребує ~" << (originalSize * 6) / (1024 * 1024) << " МБ RAM"
+              << " i може працювати дуже довго.\n"
+              << "Продовжити? (y/n): ";
+    char c;
+    std::cin >> c;
+    std::cin.ignore();
+    if (c != 'y' && c != 'Y') return 1;
+  }
+
+  if (useBWT) {
+    std::cerr << "BWT encode...\n";
+    buf = encodeBWT(buf);
+  }
+  if (useMTF) {
+    std::cerr << "MTF encode...\n";
+    buf = encodeMTF(buf);
+  }
+
   std::array<uint32_t, 256> freq{};
   for (unsigned char b : buf) freq[b]++;
 
-  // будуємо дерево і таблицю кодів
   std::vector<HuffNode> pool;
   std::array<HuffCode, 256> codes{};
 
@@ -88,25 +108,28 @@ int HuffmanEncodeFile(const std::string& inputFile, const std::string& outputFil
 
   std::string outputFile = outputFileUser.empty() ? makeDefaultOutputName(inputFile, ".huf") : outputFileUser;
 
-  // відкриваємо вихідний файл і пишемо таблицю частот (256 * 4 байти)
   {
     std::ofstream out(outputFile, std::ios::binary);
     if (!out) {
       std::cerr << "Не вдалося відкрити: " << outputFile << "\n";
       return 1;
     }
+
+    uint8_t flags = 0;
+    if (useBWT) flags |= FLAG_BWT;
+    if (useMTF) flags |= FLAG_MTF;
+    out.put(static_cast<char>(flags));
+
     for (int i = 0; i < 256; i++) {
       uint32_t f = freq[i];
       out.write(reinterpret_cast<const char*>(&f), 4);
     }
   }
 
-  // дописуємо стиснені дані бітовим потоком
   {
-    BitWriter writer(outputFile, true /* append */);
+    BitWriter writer(outputFile, true);
     for (unsigned char b : buf) {
       const HuffCode& c = codes[b];
-      // пишемо біти від старшого до молодшого
       for (int i = c.len - 1; i >= 0; i--) {
         unsigned char bit = (c.bits >> i) & 1;
         writer.WriteBit(bit);
@@ -114,22 +137,18 @@ int HuffmanEncodeFile(const std::string& inputFile, const std::string& outputFil
     }
   }
 
-  // рахуємо розмір стиснутого файлу
   std::ifstream check(outputFile, std::ios::binary | std::ios::ate);
   size_t compressedSize = static_cast<size_t>(check.tellg());
 
   std::cout << "Huffman: " << inputFile << "\n"
-            << "  оригінал:    " << buf.size() << " байт\n"
+            << "  BWT: " << (useBWT ? "так" : "ні") << "  MTF: " << (useMTF ? "так" : "ні") << "\n"
+            << "  оригінал:    " << originalSize << " байт\n"
             << "  стиснутий:   " << compressedSize << " байт\n"
             << "  (таблиця:    " << FREQ_TABLE_SIZE << " байт)\n"
             << "  результат:   " << outputFile << "\n";
 
   return 0;
 }
-
-// ---------------------------------------------------------------------------
-// декодування
-// ---------------------------------------------------------------------------
 
 int HuffmanDecodeFile(const std::string& inputFile, const std::string& outputFileUser) {
   std::ifstream in(inputFile, std::ios::binary);
@@ -138,7 +157,10 @@ int HuffmanDecodeFile(const std::string& inputFile, const std::string& outputFil
     return 1;
   }
 
-  // читаємо таблицю частот
+  uint8_t flags = static_cast<uint8_t>(in.get());
+  bool hasBWT = (flags & FLAG_BWT) != 0;
+  bool hasMTF = (flags & FLAG_MTF) != 0;
+
   std::array<uint32_t, 256> freq{};
   for (int i = 0; i < 256; i++) {
     uint32_t f = 0;
@@ -147,7 +169,6 @@ int HuffmanDecodeFile(const std::string& inputFile, const std::string& outputFil
   }
   in.close();
 
-  // відновлюємо загальну кількість символів
   uint64_t totalSymbols = 0;
   for (uint32_t f : freq) totalSymbols += f;
 
@@ -165,9 +186,11 @@ int HuffmanDecodeFile(const std::string& inputFile, const std::string& outputFil
   std::vector<unsigned char> result;
   result.reserve(static_cast<size_t>(totalSymbols));
 
-  // читаємо бітовий потік після таблиці
+  // зсув: 1 байт прапорців + 256*4 байт таблиці частот
+  static constexpr size_t DATA_OFFSET = 1 + FREQ_TABLE_SIZE;
+
   {
-    BitReader reader(inputFile, FREQ_TABLE_SIZE);
+    BitReader reader(inputFile, DATA_OFFSET);
 
     int cur = root;
     uint64_t decoded = 0;
@@ -176,13 +199,10 @@ int HuffmanDecodeFile(const std::string& inputFile, const std::string& outputFil
       int bit = reader.ReadBit();
       if (bit < 0) break;
 
-      // якщо дерево з одного вузла - він і є листком
       if (pool[cur].symbol >= 0) {
         result.push_back(static_cast<unsigned char>(pool[cur].symbol));
         decoded++;
         cur = root;
-        // цей біт треба ще опрацювати - але при одному унікальному
-        // символі код завжди 0-довжини, тому просто ігноруємо біт
         continue;
       }
 
@@ -199,6 +219,15 @@ int HuffmanDecodeFile(const std::string& inputFile, const std::string& outputFil
         cur = root;
       }
     }
+  }
+
+  if (hasMTF) {
+    std::cerr << "MTF decode...\n";
+    result = decodeMTF(result);
+  }
+  if (hasBWT) {
+    std::cerr << "BWT decode...\n";
+    result = decodeBWT(result);
   }
 
   if (!writeBinaryFile(outputFile, result)) return 1;
