@@ -7,6 +7,7 @@
 #include "Base64.hpp"
 #include "BitSeq.hpp"
 #include "Huffman.hpp"
+#include "LZW.hpp"
 #include "RLE.hpp"
 
 namespace fs = std::filesystem;
@@ -40,6 +41,19 @@ static std::vector<fs::path> listDir(const std::string& dir) {
   return entries;
 }
 
+static std::string stripCodecExtension(const std::string& path) {
+  namespace fs = std::filesystem;
+
+  fs::path p(path);
+
+  std::string ext = p.extension().string();
+
+  if (ext == ".huf" || ext == ".lzw" || ext == ".rle" || ext == ".base64") {
+    p.replace_extension("");
+  }
+
+  return p.filename().string();
+}
 // вибір файлу з папки за номером або ручне введення імені
 static std::string pickFile(const std::string& dir) {
   std::cout << "\nФайли у \"" << dir << "\":\n";
@@ -81,7 +95,8 @@ static void menuBase64() {
 
   } else if (sub == 2) {
     std::string in = pickFile(DIR_ENCODED);
-    std::string out = makeOutPath(DIR_DECODED, in, ".decoded");
+    std::string cleanName = stripCodecExtension(in);
+    std::string out = DIR_DECODED + "/" + cleanName;
     Base64DecodeFile(in, out);
   }
 }
@@ -100,7 +115,8 @@ static void menuRLE() {
 
   } else if (sub == 2) {
     std::string in = pickFile(DIR_ENCODED);
-    std::string out = makeOutPath(DIR_DECODED, in, ".decoded");
+    std::string cleanName = stripCodecExtension(in);
+    std::string out = DIR_DECODED + "/" + cleanName;
     RLEDecodeFile(in, out);
   }
 }
@@ -118,8 +134,28 @@ static void menuHuffman() {
 
   } else if (sub == 2) {
     std::string in = pickFile(DIR_ENCODED);
-    std::string out = makeOutPath(DIR_DECODED, in, ".decoded");
+    std::string cleanName = stripCodecExtension(in);
+    std::string out = DIR_DECODED + "/" + cleanName;
     HuffmanDecodeFile(in, out);
+  }
+}
+
+static void menuLZW() {
+  std::cout << "\n  1) Encode\n  2) Decode\n> ";
+  int sub;
+  std::cin >> sub;
+  std::cin.ignore();
+
+  if (sub == 1) {
+    std::string in = pickFile(DIR_MY);
+    std::string out = makeOutPath(DIR_ENCODED, in, ".lzw");
+    LZWEncodeFile(in, out, 12, 1);
+
+  } else if (sub == 2) {
+    std::string in = pickFile(DIR_ENCODED);
+    std::string cleanName = stripCodecExtension(in);
+    std::string out = DIR_DECODED + "/" + cleanName;
+    LZWDecodeFile(in, out);
   }
 }
 
@@ -153,6 +189,7 @@ int main() {
     std::cout << "1 - Base64    (1 encode, 2 decode)\n";
     std::cout << "2 - RLE       (1 encode, 2 decode)\n";
     std::cout << "3 - Huffman   (1 encode, 2 decode)\n";
+    std::cout << "4 - LZW       (1 encode, 2 decode)\n";
     std::cout << "9 - nvim\n";
     std::cout << "10 - Test (BitSeq demo)\n";
     std::cout << "> ";
@@ -169,6 +206,8 @@ int main() {
       menuRLE();
     else if (choose == 3)
       menuHuffman();
+    else if (choose == 4)
+      menuLZW();
     else if (choose == 9)
       menuNvim();
     else if (choose == 10)
